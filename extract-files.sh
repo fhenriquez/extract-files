@@ -25,6 +25,7 @@ __author__="Franklin Henriquez"
 __email__="franklin.a.henriquez@gmail.com"
 
 # Set magic variables for current file & dir
+__cur_dir="$(pwd)"
 __dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 __file="${__dir}/$(basename "${BASH_SOURCE[0]}")"
 __base="$(basename ${__file} .sh)"
@@ -191,8 +192,8 @@ example_file () {
 # ARGS: main args
 function parse_args() {
 
-    local short_opts='d:,f:,h,l:,v,x'
-    local long_opts='dir:,example,file-ext:,help,log,verbose'
+    local short_opts=',d:,f:,h,l:,v,x'
+    local long_opts=',dir:,example,file-ext:,help,log,verbose'
 
     # -use ! and PIPESTATUS to get exit code with errexit set
     # -temporarily store output to be able to check for errors
@@ -208,19 +209,26 @@ function parse_args() {
     # read getopt’s output this way to handle the quoting right:
     eval set -- "$PARSED"
 
-    if [[ "${PARSED}" == " --" ]]
-    then
-        debug "No arguments were passed"
-        usage
-        exit 1
-    fi
+#    if [[ "${PARSED}" == " --" ]]
+#    then
+#        debug "No arguments were passed"
+#        usage
+#        exit 1
+#    fi
 
     # extract options and their arguments into variables.
     while true ; do
         case "$1" in
 
             -d | --dir)
-                dir="$2"
+                working_dir="$2"
+                case ${working_dir} in
+                      /*) debug "${working_dir} is absolute path" ;;
+                       *) debug "${working_dir} is a relative path"
+                           working_dir="${__cur_dir}/${2}"
+                           debug "setting to ${working_dir}"
+                           ;;
+                    esac
                 shift 2
                 ;;
             -f | --file-ext)
@@ -268,35 +276,41 @@ function parse_args() {
 ex () {
     if [ -f $1 ] ; then
         case $1 in
-            *.tar.bz2)   tar xjf $1        ;;
+            *.tar.bz2)   tar xjf $1     ;;
             *.tar.gz)    tar xzf $1     ;;
-            *.bz2)       bunzip2 $1       ;;
-            *.rar)       rar x $1     ;;
-            *.gz)        gunzip $1     ;;
-            *.tar)       tar xf $1        ;;
-            *.tbz2)      tar xjf $1      ;;
-            *.tgz)       tar xzf $1       ;;
-            *.zip)       unzip $1     ;;
+            *.bz2)       bunzip2 $1     ;;
+            *.rar)       rar x $1       ;;
+            *.gz)        gunzip $1      ;;
+            *.tar)       tar xf $1      ;;
+            *.tbz2)      tar xjf $1     ;;
+            *.tgz)       tar xzf $1     ;;
+            *.zip)       unzip $1       ;;
             *.Z)         uncompress $1  ;;
-            *.7z)        7z x $1    ;;
-        *)           echo "'$1' cannot be extracted via extract()" ;;
+            *.7z)        7z x $1        ;;
+        *)           debug "$1 cannot be extracted via extract()" ; return 1
         esac
     else
-        echo "'$1' is not a valid file"
+        debug "$1 is not a valid file"
+        return 0
     fi
+
+    return $(echo $?)
 }
 
 # DESC: main
 # ARGS: None
 function main() {
 
+    # Saving IFS as we need to change it later.
+    OLD_IFS="${IFS}"
+
     DEBUG="false"
     matched_files=""
     found=false
 
-    parse_args "$@"
+    debug "\n=========================================== $(date +'%Y-%m-%d %H:%M:%S'): Starting Run ===========================================\n"
 
-    debug "Starting main script"
+    parse_args "$@"
 
     if [ -z "${BASH_VERSINFO}" ] || [ -z "${BASH_VERSINFO[0]}" ] || [ ${BASH_VERSINFO[0]} -lt 4 ]
     then
@@ -312,9 +326,9 @@ function main() {
         exit 4
     fi
 
-    if [ -z "${dir}" ]
+    if [ -z "${working_dir}" ]
     then
-        dir=$__dir
+        working_dir=$__cur_dir
     fi
 
     # Run in debug mode, if set
@@ -327,7 +341,7 @@ function main() {
         set -o xtrace           # Trace the execution of the script (debug)
     fi
 
-    debug "Querying $dir for ${category} category."
+    info "Querying $working_dir for ${category} category."
     if [ "${category}" == "all" ]
     then
         category="${audio_file_ext}${image_file_ext}${video_file_ext}"
@@ -335,31 +349,46 @@ function main() {
 
     for extension in $(echo ${category})
     do
-        debug "Processing ${extension}"
-        for file in $(ls "${dir}/")
+        info "Processing ${extension}"
+        # Setting IFS to ignore spaces, only count newlines.
+        # Just in case there is a directory that contains spaces.
+        IFS=$'\n'
+        for file in $(ls "${working_dir}/")
         do
-            if [ "${file}" == *".${extension}" ]
+            if echo "${file}" | grep -iaF "sample" &> /dev/null
             then
-                debug "${extension} found in ${file}"
+                debug "Skipping ${file}, it is a sample file."
+            elif [[ "${file}" =~ ".${extension}"$ ]]
+            then
+                debug "${extension} FOUND in ${file}"
                 matched_files="${matched_files}${file},"
                 found=true
             else
                 debug "${extension} NOT FOUND in ${file}"
             fi
         done
-#
-#        iter=0
-#        iter=`ls -l ${dir}/*.${extension} &>/dev/null | wc -l`
-#        count=$((count+iter))
-#        #count=$((count+$(ls -l ${dir}/*.${extension} &>/dev/null | wc -l)))
+
+        # Make sure IFS returns to original value.
+        IFS="${OLD_IFS}"
+
     done
 
     if [ ${found} = true ]
     then
         info "Found Match:\n \r${matched_files::-1}"
     else
-        info "No matches found, attempting to extract."
-        ex
+        file=$(ls ${working_dir}/ | grep ${encryption_ext})
+        info "No matches found, attempting to extract ${file}."
+
+        ex ${file}
+        result=$(echo $?)
+
+        if [ "${result}" = 0 ]
+        then
+            info "successfully extracted ${file}"
+        else
+            error "failed to extract ${file}"
+        fi
     fi
 
     return 0
