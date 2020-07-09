@@ -2,4 +2,8 @@
 *.log
 *.creds
 *.srv
+*.txt
+*.rar
+*.zip
+*.tar
 test
