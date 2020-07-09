@@ -164,10 +164,11 @@ usage() {
     \roptional arguments:
     \r-h, --help\t\t Show this help message and exit.
     \r-l, --log <file>\t Log file.
+    \r-r, --recursive\t\t Recursive checks (default: False).
     \r-x, --example\t\t Show support file types.
     \r-v, --verbose\t\t Verbosity.
-    \r             \t\t -v info
-    \r             \t\t -vv debug
+    \r             \t\t -v   info
+    \r             \t\t -vv  debug
     \r             \t\t -vvv bash debug"
 
     return 0
@@ -192,8 +193,8 @@ example_file () {
 # ARGS: main args
 function parse_args() {
 
-    local short_opts=',d:,f:,h,l:,v,x'
-    local long_opts=',dir:,example,file-ext:,help,log,verbose'
+    local short_opts=',d:,f:,h,l:,r,v,x'
+    local long_opts=',dir:,example,file-ext:,help,log,recursive,verbose'
 
     # -use ! and PIPESTATUS to get exit code with errexit set
     # -temporarily store output to be able to check for errors
@@ -244,6 +245,10 @@ function parse_args() {
                 # Display usage.
                 usage
                 exit 1;
+                ;;
+            -r | --recursive)
+                recursive=true
+                shift
                 ;;
             -x | --example)
                 # Display exmaple.
@@ -297,6 +302,26 @@ ex () {
     return $(echo $?)
 }
 
+
+# DESC: check-file()
+# ARGS: /path/to/file
+function check-file() {
+
+    if echo "${file}" | grep -iaF "sample" &> /dev/null
+    then
+        debug "Skipping ${file}, it is a sample file."
+    elif [[ "${file}" =~ ".${extension}"$ ]]
+    then
+        debug "${extension} FOUND in ${file}"
+        matched_files="${matched_files}${file},"
+        found=true
+    else
+        debug "${extension} NOT FOUND in ${file}"
+    fi
+
+    return 0
+}
+
 # DESC: main
 # ARGS: None
 function main() {
@@ -308,9 +333,14 @@ function main() {
     matched_files=""
     found=false
 
-    debug "\n=========================================== $(date +'%Y-%m-%d %H:%M:%S'): Starting Run ===========================================\n"
-
     parse_args "$@"
+
+    if ${recursive_run}
+    then
+        debug "\n ******** $(date +'%Y-%m-%d %H:%M:%S'): Starting Recursive Run ********"
+    else
+        debug "\n=========================================== $(date +'%Y-%m-%d %H:%M:%S'): Starting Run ===========================================\n"
+    fi
 
     if [ -z "${BASH_VERSINFO}" ] || [ -z "${BASH_VERSINFO[0]}" ] || [ ${BASH_VERSINFO[0]} -lt 4 ]
     then
@@ -319,7 +349,7 @@ function main() {
     elif [  -z "${category}" ]
     then
         category="all"
-    elif [ "${category}" == "all" || "${category}" == "audio" || "${category}" == "images" || "${category}" == "video" ]
+    elif [[ "${category}" == "all" || "${category}" == "audio" || "${category}" == "images" || "${category}" == "video" ]]
     then
         debug "Invalid category selected."
         usage
@@ -353,19 +383,40 @@ function main() {
         # Setting IFS to ignore spaces, only count newlines.
         # Just in case there is a directory that contains spaces.
         IFS=$'\n'
+
+        file_check=$(find ${working_dir} -maxdepth 1 -type f | wc -l)
+
+        if [ ${file_check} -eq 0 ]  && ! ${recursive}
+        then
+            info "${working_dir} only contains directories and recursive: ${recursive}"
+            return 0
+        fi
+
         for file in $(ls "${working_dir}/")
         do
-            if echo "${file}" | grep -iaF "sample" &> /dev/null
+            if [ -d "${file}" ] && ${recursive}
             then
-                debug "Skipping ${file}, it is a sample file."
-            elif [[ "${file}" =~ ".${extension}"$ ]]
-            then
-                debug "${extension} FOUND in ${file}"
-                matched_files="${matched_files}${file},"
-                found=true
+                debug "${file} is a directory, going inside to query"
+                recursive_run=true
+                # Make sure IFS returns to original value.
+                IFS="${OLD_IFS}"
+                main -d "${file}"
+                debug "\n ******** $(date +'%Y-%m-%d %H:%M:%S'): Recursive Run Complete ********"
+                recursive_run=false
             else
-                debug "${extension} NOT FOUND in ${file}"
+                check-file ${file}
             fi
+#            if echo "${file}" | grep -iaF "sample" &> /dev/null
+#            then
+#                debug "Skipping ${file}, it is a sample file."
+#            elif [[ "${file}" =~ ".${extension}"$ ]]
+#            then
+#                debug "${extension} FOUND in ${file}"
+#                matched_files="${matched_files}${file},"
+#                found=true
+#            else
+#                debug "${extension} NOT FOUND in ${file}"
+#            fi
         done
 
         # Make sure IFS returns to original value.
@@ -377,11 +428,25 @@ function main() {
     then
         info "Found Match:\n \r${matched_files::-1}"
     else
+        # Setting IFS to ignore spaces, only count newlines.
+        # Just in case there is a directory that contains spaces.
+        IFS=$'\n'
+
         file=$(ls ${working_dir}/ | grep ${encryption_ext})
         info "No matches found, attempting to extract ${file}."
 
-        ex ${file}
-        result=$(echo $?)
+        # Make sure IFS returns to original value.
+        IFS="${OLD_IFS}"
+
+#        echo "${file}"
+        if [[ "${file}" == '' ]]
+        then
+            info "No file found to extract."
+            return 0
+        else
+            ex ${file}
+            result=$(echo $?)
+        fi
 
         if [ "${result}" = 0 ]
         then
@@ -396,6 +461,11 @@ function main() {
 
 # make it rain
 debug "Starting script"
+
+recursive=false
+recursive_run=false
+
 main "$@"
+
 debug "\n=========================================== $(date +'%Y-%m-%d %H:%M:%S'): Run Complete ===========================================\n"
 exit 0
