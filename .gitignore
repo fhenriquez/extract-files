@@ -1,0 +1,5 @@
+# Custom ignore
+*.log
+*.creds
+*.srv
+test

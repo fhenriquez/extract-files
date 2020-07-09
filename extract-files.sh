@@ -9,7 +9,13 @@
 
 # Required binaries:
 # - bash v4+
-#
+# - 7z
+# - bunzip2
+# - gunzip
+# - tar
+# - rar
+# - uncompress
+# - unzip
 
 # Notes:
 # This script uses assossiated arrays which were introduce in bash v4.
@@ -96,7 +102,7 @@ logger() {
     fi
 }
 
-
+# Extension to query
 audio_file_ext=""
 image_file_ext=""
 video_file_ext="
@@ -139,16 +145,20 @@ wmv
 yuv
 "
 
+# To find file to extract
+encryption_ext='.tar.bz2\|.tar.gz\|.bz2\|.rar\|.tar\|.gz\|.tbz2\|.tgz\|.zip\|.Z\|.7z'
+
 # DESC: Usage help
 # ARGS: None
 usage() {
     echo -e "\
     \rUsage: $0 -f <category>
-    \rDescription: Extracts if no media files found
+    \rDescription: Extracts files if no media file extension is found.
 
     \rrequired arguments:
-    \r-f, --file-ext <category>\t Categories: all, audio, image, video
-    \r                          \t          (default: all)
+    \r-d, --dir </path/to/dir>\t   Default: present working directory
+    \r-f, --file-ext <category>\t   Categories: all, audio, image, video
+    \r                          \t\t          (default: all)
 
     \roptional arguments:
     \r-h, --help\t\t Show this help message and exit.
@@ -181,8 +191,8 @@ example_file () {
 # ARGS: main args
 function parse_args() {
 
-    local short_opts='f:,h,l:,v,x'
-    local long_opts='example,file-ext:,help,log,verbose'
+    local short_opts='d:,f:,h,l:,v,x'
+    local long_opts='dir:,example,file-ext:,help,log,verbose'
 
     # -use ! and PIPESTATUS to get exit code with errexit set
     # -temporarily store output to be able to check for errors
@@ -209,6 +219,10 @@ function parse_args() {
     while true ; do
         case "$1" in
 
+            -d | --dir)
+                dir="$2"
+                shift 2
+                ;;
             -f | --file-ext)
                 category="$2"
                 shift 2
@@ -248,11 +262,37 @@ function parse_args() {
     return 0
 }
 
+
+# DESC: main
+# ARGS: file to extract
+ex () {
+    if [ -f $1 ] ; then
+        case $1 in
+            *.tar.bz2)   tar xjf $1        ;;
+            *.tar.gz)    tar xzf $1     ;;
+            *.bz2)       bunzip2 $1       ;;
+            *.rar)       rar x $1     ;;
+            *.gz)        gunzip $1     ;;
+            *.tar)       tar xf $1        ;;
+            *.tbz2)      tar xjf $1      ;;
+            *.tgz)       tar xzf $1       ;;
+            *.zip)       unzip $1     ;;
+            *.Z)         uncompress $1  ;;
+            *.7z)        7z x $1    ;;
+        *)           echo "'$1' cannot be extracted via extract()" ;;
+        esac
+    else
+        echo "'$1' is not a valid file"
+    fi
+}
+
 # DESC: main
 # ARGS: None
 function main() {
 
     DEBUG="false"
+    matched_files=""
+    found=false
 
     parse_args "$@"
 
@@ -262,9 +302,19 @@ function main() {
     then
         echo "This script requires Bash version >= 4"
         exit 3
-    elif [ -z "${category}" ]
+    elif [  -z "${category}" ]
     then
+        category="all"
+    elif [ "${category}" == "all" || "${category}" == "audio" || "${category}" == "images" || "${category}" == "video" ]
+    then
+        debug "Invalid category selected."
         usage
+        exit 4
+    fi
+
+    if [ -z "${dir}" ]
+    then
+        dir=$__dir
     fi
 
     # Run in debug mode, if set
@@ -277,11 +327,46 @@ function main() {
         set -o xtrace           # Trace the execution of the script (debug)
     fi
 
+    debug "Querying $dir for ${category} category."
+    if [ "${category}" == "all" ]
+    then
+        category="${audio_file_ext}${image_file_ext}${video_file_ext}"
+    fi
+
+    for extension in $(echo ${category})
+    do
+        debug "Processing ${extension}"
+        for file in $(ls "${dir}/")
+        do
+            if [ "${file}" == *".${extension}" ]
+            then
+                debug "${extension} found in ${file}"
+                matched_files="${matched_files}${file},"
+                found=true
+            else
+                debug "${extension} NOT FOUND in ${file}"
+            fi
+        done
+#
+#        iter=0
+#        iter=`ls -l ${dir}/*.${extension} &>/dev/null | wc -l`
+#        count=$((count+iter))
+#        #count=$((count+$(ls -l ${dir}/*.${extension} &>/dev/null | wc -l)))
+    done
+
+    if [ ${found} = true ]
+    then
+        info "Found Match:\n \r${matched_files::-1}"
+    else
+        info "No matches found, attempting to extract."
+        ex
+    fi
+
+    return 0
 }
 
 # make it rain
 debug "Starting script"
 main "$@"
-debug "Script is complete"
-logger "\n=========================================== $(date +'%Y-%m-%d %H:%M:%S'): Run Complete ===========================================\n"
+debug "\n=========================================== $(date +'%Y-%m-%d %H:%M:%S'): Run Complete ===========================================\n"
 exit 0
