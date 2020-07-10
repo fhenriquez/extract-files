@@ -104,8 +104,89 @@ logger() {
 }
 
 # Extension to query
-audio_file_ext=""
-image_file_ext=""
+audio_file_ext="
+3gp
+8svx
+aa
+aac
+aax
+act
+aiff
+alac
+amr
+ape
+au
+awb
+cda
+dct
+dss
+dvf
+flac
+gsm
+iklax
+ivs
+m4a
+m4b
+m4p
+mmf
+mogg
+mp3
+mpc
+msv
+nmf
+oga
+ogg
+opus
+ra
+raw
+rf64
+rm
+sln
+tta
+voc
+vox
+wav
+webm
+wma
+wv
+"
+image_file_ext="
+ai
+arw
+bmp
+cr2
+dib
+eps
+gif
+heic
+heif
+ind
+indd
+indt
+j2k
+jfi
+jfif
+jif
+jp2
+jpe
+jpeg
+jpf
+jpg
+jpm
+jpx
+k25
+mj2
+nrw
+pdf
+png
+psd
+raw
+svg
+svgz
+tif
+tiff
+webp
+"
 video_file_ext="
 3g2
 3gp
@@ -337,7 +418,7 @@ function main() {
 
     if ${recursive_run}
     then
-        debug "\n ******** $(date +'%Y-%m-%d %H:%M:%S'): Starting Recursive Run ********"
+        debug "\n\n ******** $(date +'%Y-%m-%d %H:%M:%S'): Starting Recursive Run ********\n"
     else
         debug "\n=========================================== $(date +'%Y-%m-%d %H:%M:%S'): Starting Run ===========================================\n"
     fi
@@ -346,14 +427,6 @@ function main() {
     then
         echo "This script requires Bash version >= 4"
         exit 3
-    elif [  -z "${category}" ]
-    then
-        category="all"
-    elif [[ "${category}" == "all" || "${category}" == "audio" || "${category}" == "images" || "${category}" == "video" ]]
-    then
-        debug "Invalid category selected."
-        usage
-        exit 4
     fi
 
     if [ -z "${working_dir}" ]
@@ -372,12 +445,30 @@ function main() {
     fi
 
     info "Querying $working_dir for ${category} category."
-    if [ "${category}" == "all" ]
-    then
-        category="${audio_file_ext}${image_file_ext}${video_file_ext}"
-    fi
+    case ${category} in
+        "")
+            category_search="${audio_file_ext}${image_file_ext}${video_file_ext}"
+            ;;
+        all)
+            category_search="${audio_file_ext}${image_file_ext}${video_file_ext}"
+            ;;
+        audio)
+            category_search="${audio_file_ext}"
+            ;;
+        image)
+            category_search="${image_file_ext}"
+            ;;
+        video)
+            category_search="${video_file_ext}"
+            ;;
+        *)
+            debug "Invalid category selected."
+            usage
+            exit 4
+    esac
 
-    for extension in $(echo ${category})
+
+    for extension in $(echo ${category_search})
     do
         info "Processing ${extension}"
         # Setting IFS to ignore spaces, only count newlines.
@@ -385,23 +476,28 @@ function main() {
         IFS=$'\n'
 
         file_check=$(find ${working_dir} -maxdepth 1 -type f | wc -l)
+        dir_check=$(find ${working_dir} -maxdepth 1 -type d | wc -l)
 
         if [ ${file_check} -eq 0 ]  && ! ${recursive}
         then
             info "${working_dir} only contains directories and recursive: ${recursive}"
             return 0
+        elif [ ${file_check} -eq 0 ] && [ ${dir_check} -eq 1 ]
+        then
+            info "${working_dir} is empty."
+            return 0
         fi
 
         for file in $(ls "${working_dir}/")
         do
-            if [ -d "${file}" ] && ${recursive}
+            if [ -d "${working_dir}/${file}" ] && ${recursive}
             then
                 debug "${file} is a directory, going inside to query"
                 recursive_run=true
                 # Make sure IFS returns to original value.
                 IFS="${OLD_IFS}"
-                main -d "${file}"
-                debug "\n ******** $(date +'%Y-%m-%d %H:%M:%S'): Recursive Run Complete ********"
+                main -d "${working_dir}/${file}" -f "${category}"
+                debug "\n\n ******** $(date +'%Y-%m-%d %H:%M:%S'): Recursive Run Complete ********\n"
                 recursive_run=false
             else
                 check-file ${file}
